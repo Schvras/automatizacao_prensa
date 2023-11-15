@@ -1,15 +1,18 @@
 #include <AFMotor.h>
 #include <Servo.h>
 
-#define motor_number        4
-#define Encoder_C1          A4
-#define Encoder_C2          A5
+#define motor_esteira       4
+#define motor_braco         3
+#define enc_esteira_a       A3
+#define enc_esteira_b       A4
+#define enc_braco_a         10
+#define enc_braco_b         9
+#define fim_curso_braco     A2
 #define pin_vacuo           13
 #define pin_ini_esteira     A0
 #define pin_fim_esteira     A1
 #define pin_servo           9
-#define aciona_tag          A2
-#define descarta_tag        A3
+#define aciona_tag          A5
 #define rotacao_esteira     BACKWARD
 #define verdadeiro_barreira LOW
 #define falso_barreira      HIGH
@@ -19,14 +22,15 @@ int   passo_magazine            = 0;
 int   passo_esteira             = 1;
 int   pos_ini_servo             = 20;
 int   pos_fim_servo             = 65;
+int   meio_sensor_fim           = 700;
 long  contador_encoder_esteira  = 0;
 long  numero_passos             = 100;
 unsigned long tempo_servo       = 0;
 unsigned long t_esteira         = 0;
 unsigned long diferenca_tempo   = 0;
 
-AF_DCMotor esteira(motor_number);
-Servo servo1;
+AF_DCMotor esteira(motor_esteira);
+AF_DCMotor braco(motor_braco);
 
 void setup() {
 
@@ -34,29 +38,24 @@ void setup() {
   Serial.println("Iniciando");
 
   // Definir pino dos sensores
-  pinMode(Encoder_C1,  INPUT);
-  pinMode(Encoder_C2,  INPUT);
+  pinMode(enc_esteira_a,    INPUT);
+  pinMode(enc_esteira_b,    INPUT);
+  pinMode(enc_braco_a,      INPUT);
+  pinMode(enc_braco_b,      INPUT);
   pinMode(pin_ini_esteira,  INPUT);
   pinMode(pin_fim_esteira,  INPUT);
   pinMode(aciona_tag,       INPUT);
-  pinMode(descarta_tag,     INPUT_PULLUP);
   pinMode(pin_vacuo,        OUTPUT);
-
-  // Pino de acionamento do servo
-  servo1.attach(pin_servo);
-
+  
   // Velocidade esteira
   esteira.setSpeed(255);
-
-  // Posição inicial do servo
-  servo1.write(pos_ini_servo);
-  delay(1000);
+  braco.setSpeed(255);
 
   // Se possuir tag no final da esteira e nenhuma no inicio, solta a mesma
-  if (digitalRead(pin_fim_esteira) == verdadeiro_barreira or digitalRead(pin_ini_esteira) == verdadeiro_barreira){
+  if (analogRead(pin_fim_esteira) < meio_sensor_fim or digitalRead(pin_ini_esteira) == verdadeiro_barreira){
 
     t_esteira = millis();
-    while(digitalRead(pin_fim_esteira) == verdadeiro_barreira){
+    while(analogRead(pin_fim_esteira) < meio_sensor_fim){
 
       // Aciona para soltar a tag no final
       esteira.run(rotacao_esteira);
@@ -80,14 +79,6 @@ void loop() {
   // Emergência
   if(emergencia == true){
 
-    if(servo1.read() == 20){
-      servo1.write(30);
-      delay(100);
-    }else{
-      servo1.write(20);
-      delay(100);
-    }
-
     esteira.run(FORWARD);
   
   // Não em emergência
@@ -98,26 +89,26 @@ void loop() {
     diferenca_tempo = millis() - tempo_servo;
 
     // Aciona braço com servo
-    if((passo_magazine == 0) or (passo_magazine == 1 and servo1.read() == pos_ini_servo and diferenca_tempo > 2000)){
+    if((passo_magazine == 0) or (passo_magazine == 1 and diferenca_tempo > 2000)){
       passo_magazine  = 2;
       tempo_servo     = millis();
 
-      servo1.write(pos_fim_servo);
+      //servo1.write(pos_fim_servo);
       digitalWrite(pin_vacuo, HIGH);
 
       Serial.println("Vacuo ligado");
     }
 
     // Desaciona braço com servo
-    if(passo_magazine == 2 and diferenca_tempo > 1000 and servo1.read() == pos_fim_servo){
+    if(passo_magazine == 2 and diferenca_tempo > 1000){
       passo_magazine  = 3;
       tempo_servo     = millis();
 
-      servo1.write(pos_ini_servo);
+      //servo1.write(pos_ini_servo);
     }
 
     // Desliga vacuo
-    if(passo_magazine == 3 and diferenca_tempo > 1000 and digitalRead(pin_ini_esteira) == falso_barreira and digitalRead(pin_fim_esteira) == falso_barreira){
+    if(passo_magazine == 3 and diferenca_tempo > 1000 and digitalRead(pin_ini_esteira) == falso_barreira and analogRead(pin_fim_esteira) > meio_sensor_fim){
       passo_magazine  = 1;
       tempo_servo     = millis();
 
@@ -129,7 +120,7 @@ void loop() {
   /* Esteira */
 
     // Aciona esteira
-    if(passo_esteira == 1 and digitalRead(pin_ini_esteira) == verdadeiro_barreira and digitalRead(pin_fim_esteira) == falso_barreira and digitalRead(aciona_tag) == HIGH){
+    if(passo_esteira == 1 and digitalRead(pin_ini_esteira) == verdadeiro_barreira and analogRead(pin_fim_esteira) > meio_sensor_fim and digitalRead(aciona_tag) == HIGH){
       passo_esteira = 2;
 
       esteira.run(rotacao_esteira);
@@ -138,7 +129,7 @@ void loop() {
     }
     
     // Contar passos esteira
-    if(passo_esteira == 2 and digitalRead(pin_fim_esteira) == verdadeiro_barreira){
+    if(passo_esteira == 2 and analogRead(pin_fim_esteira) < meio_sensor_fim){
       contador_encoder_esteira  = 0;
       passo_esteira             = 3;
 
@@ -148,7 +139,7 @@ void loop() {
     // Conta enquanto o passo for 3
     if(passo_esteira == 3){
       // Incrementa ou decrementa o contador de acordo com a condição do sinal no canal A
-      if (digitalRead(Encoder_C1) == LOW && digitalRead(Encoder_C2) == HIGH) {
+      if (digitalRead(enc_braco_a) == LOW && digitalRead(enc_braco_b) == HIGH) {
         contador_encoder_esteira --;
       }
       else {
@@ -160,6 +151,7 @@ void loop() {
     // Parar esteira se atingir numero de passos
     if(passo_esteira == 3 and contador_encoder_esteira >= numero_passos){
       passo_esteira = 4;
+      t_esteira = millis();
 
       esteira.run(RELEASE);
 
@@ -167,7 +159,7 @@ void loop() {
     }
 
     // Soltar tag esteira
-    if(passo_esteira == 4 and digitalRead(descarta_tag) == LOW){
+    if(passo_esteira == 4 and millis() - t_esteira > 2000){
       passo_esteira = 5;
 
       esteira.run(rotacao_esteira);
@@ -176,7 +168,7 @@ void loop() {
     }
 
     // Acabou de soltar tag esteira
-    if(passo_esteira == 5 and digitalRead(pin_fim_esteira) == falso_barreira){
+    if(passo_esteira == 5 and analogRead(pin_fim_esteira) > meio_sensor_fim){
       passo_esteira = 1;
 
       esteira.run(RELEASE);
